@@ -3,7 +3,7 @@ libv4l2cpp
 ====================
 
 It is a C++ wrapper for V4L2 mofified from  https://github.com/mpromonet/libv4l2cpp by mpromonet.
-I added more prints and solved 一个 video 设备 节点可能对应多个视频源.
+I added more prints and solved  problem which is a video device may have rather than one video resource.And main keypoints I added was opencv Mat BGR format surport.
 
 Dependencies
 ------------
