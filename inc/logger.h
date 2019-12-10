@@ -59,7 +59,10 @@ typedef enum {EMERG  = 0,
 
 #include <iostream>
 extern int LogLevel;
-#define LOG(__level) if (__level<=LogLevel) std::cout << "\n[" << #__level << "] " << __FILE__ << ":" << __LINE__ << "\n\t" 
+#define LOG(__level) if (__level<=LogLevel) std::cout << "\n[" << #__level << "] " << __FILE__ << ":" << __LINE__ << "\n\t"
+
+//#define LOG(__level) if (__level<=LogLevel) std::cout << "\n[" << #__level << "] " << __FILE__ << ":" << __LINE__ << "\n\t"
+//#define LOG(__level) if (__level<=LogLevel) std::cout<< "\n"
 
 inline void initLogger(int verbose)
 {
@@ -70,10 +73,11 @@ inline void initLogger(int verbose)
                 default: LogLevel=NOTICE; break;
 
         }
-	std::cout << "log level:" << LogLevel << std::endl;
-}
+    std::cout << "log level:" << LogLevel << std::endl;
 
 #endif
 	
 #endif
 
+
+}

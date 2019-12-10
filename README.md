@@ -2,7 +2,8 @@
 libv4l2cpp
 ====================
 
-It is a C++ wrapper for V4L2
+It is a C++ wrapper for V4L2 mofified from  https://github.com/mpromonet/libv4l2cpp by mpromonet.
+I added more prints and solved 一个 video 设备 节点可能对应多个视频源.
 
 Dependencies
 ------------
@@ -12,7 +13,7 @@ V4L2 Capture
 -------------
  - create a V4L2 Capture interface using MMAP interface:
 
-         V4L2DeviceParameters param("/dev/video0", V4L2_PIX_FMT_*, width, height, fps, verbose);
+         V4L2DeviceParameters param("/dev/video0", V4L2_PIX_FMT_*, width, height, fps, input_index, verbose);
          V4l2Capture* videoCapture = V4l2Capture::create(param, V4l2Access::IOTYPE_MMAP);
 
  - data are available :
@@ -30,7 +31,7 @@ V4L2 Output
 
  - To create a V4L2 Output interface using MMAP interface:
 
-         V4L2DeviceParameters param("/dev/video0", V4L2_PIX_FMT_*, width, height, fps, verbose);
+         V4L2DeviceParameters param("/dev/video0", V4L2_PIX_FMT_*, width, height, fps, input_index , verbose);
          V4l2Output* videoOutput = V4l2Output::create(param, V4l2Access::IOTYPE_MMAP);
 
  - data could be written :

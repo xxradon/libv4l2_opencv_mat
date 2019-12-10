@@ -64,12 +64,12 @@ void V4l2Device::queryFormat()
 }
 
 // intialize the V4L2 connection
-bool V4l2Device::init(unsigned int mandatoryCapabilities)
+bool V4l2Device::init(unsigned int mandatoryCapabilities )
 {
         struct stat sb;
         if ( (stat(m_params.m_devName.c_str(), &sb)==0) && ((sb.st_mode & S_IFMT) == S_IFCHR) )
         {
-		if (initdevice(m_params.m_devName.c_str(), mandatoryCapabilities) == -1)
+        if (initdevice(m_params.m_devName.c_str(), mandatoryCapabilities) == -1 )
 		{
 			LOG(ERROR) << "Cannot init device:" << m_params.m_devName;
 		}
@@ -83,7 +83,7 @@ bool V4l2Device::init(unsigned int mandatoryCapabilities)
 }
 
 // intialize the V4L2 device
-int V4l2Device::initdevice(const char *dev_name, unsigned int mandatoryCapabilities)
+int V4l2Device::initdevice(const char *dev_name,unsigned int mandatoryCapabilities  )
 {
 	m_fd = open(dev_name,  m_params.m_openFlags);
 	if (m_fd < 0) 
@@ -92,6 +92,55 @@ int V4l2Device::initdevice(const char *dev_name, unsigned int mandatoryCapabilit
 		this->close();
 		return -1;
 	}
+    /*
+     * 查询video的可输入设备数，和对应的名字
+     */
+    struct v4l2_input input;
+
+    struct v4l2_standard standard;
+
+    memset (&input, 0, sizeof (input));
+
+    //首先获得当前输入的 index,注意只是 index，要获得具体的信息，就的调用列举操作
+    input.index = m_params.m_inputIndex;
+    if (-1 == ioctl(m_fd, VIDIOC_S_INPUT, &input)){
+         LOG(ERROR) << "can not set " << m_params.m_inputIndex <<" input index";
+         return -1;
+    }
+    if (-1 == ioctl (m_fd, VIDIOC_G_INPUT, &input.index)) {
+
+        LOG(ERROR) << "get VIDIOC_G_INPUT error ";
+        return -1;
+    }
+
+
+    //调用列举操作，获得 input.index 对应的输入的具体信息
+
+    if (-1 == ioctl (m_fd, VIDIOC_ENUMINPUT, &input)) {
+     LOG(ERROR) << "Get ”VIDIOC_ENUM_INPUT” error";
+    return -1;
+    }
+    LOG(NOTICE) << "Current input " <<input.name<<" supports:";
+    memset (&standard, 0, sizeof (standard)); standard.index = 0;
+
+    //列举所有的所支持的 standard，如果 standard.id 与当前 input 的 input.std 有共同的
+    //bit flag，意味着当前的输入支持这个 standard,这样将所有驱动所支持的 standard 列举一个
+    //遍，就可以找到该输入所支持的所有 standard 了。
+
+    while (0 == ioctl (m_fd, VIDIOC_ENUMSTD, &standard)) {
+
+        if (standard.id & input.std)
+            LOG(NOTICE) << standard.name;
+            standard.index++;
+    }
+
+    /* EINVAL indicates the end of the enumeration, which cannot be empty unless this device falls under the USB exception.*/
+
+    if (errno != EINVAL || standard.index == 0) {
+     LOG(NOTICE) << "Get ”VIDIOC_ENUMSTD” error";
+    }
+
+
 	if (checkCapabilities(m_fd,mandatoryCapabilities) !=0)
 	{
 		this->close();
@@ -110,11 +159,66 @@ int V4l2Device::initdevice(const char *dev_name, unsigned int mandatoryCapabilit
 	
 	return m_fd;
 }
+static std::string frmtype2s(unsigned type)
+{
+    static const char *types[] = {
+        "Unknown",
+        "Discrete",
+        "Continuous",
+        "Stepwise"
+    };
 
-// check needed V4L2 capabilities
+    if (type > 3)
+        type = 0;
+    return types[type];
+}
+static std::string fract2sec(const struct v4l2_fract &f)
+{
+    char buf[100];
+
+    sprintf(buf, "%.3f s", (1.0 * f.numerator) / f.denominator);
+    return buf;
+}
+
+static std::string fract2fps(const struct v4l2_fract &f)
+{
+    char buf[100];
+
+    sprintf(buf, "%.3f fps", (1.0 * f.denominator) / f.numerator);
+    return buf;
+}
+
+static void print_frmival(const struct v4l2_frmivalenum &frmival)
+{
+//    printf("%s\tInterval: %s ", prefix, frmtype2s(frmival.type).c_str());
+
+    if (frmival.type == V4L2_FRMIVAL_TYPE_DISCRETE) {
+        LOG(NOTICE) << "Interval: "<<frmtype2s(frmival.type)<< " " <<fract2sec(frmival.discrete) << " ->"<< fract2fps(frmival.discrete);
+    } else if (frmival.type == V4L2_FRMIVAL_TYPE_STEPWISE) {
+        LOG(NOTICE) << "Interval: "<<frmtype2s(frmival.type)<<fract2sec(frmival.stepwise.min)<< " - " << fract2sec(frmival.stepwise.max)
+                     <<" with step "<<fract2sec(frmival.stepwise.step);
+        LOG(NOTICE) << fract2sec(frmival.stepwise.min)<< " - " << fract2sec(frmival.stepwise.max)
+                     <<" with step "<<fract2sec(frmival.stepwise.step);
+    }
+}
+
+// check needed V4L2 capabilities,get the device the basic imformation
 int V4l2Device::checkCapabilities(int fd, unsigned int mandatoryCapabilities)
 {
 	struct v4l2_capability cap;
+    /*
+        struct v4l2_capability
+
+        {
+
+        u8 driver[16]; // 驱动名字
+        u8 card[32]; // 设备名字
+        u8 bus_info[32]; // 设备在系统中的位置
+        u32 version;// 驱动版本号
+        u32 capabilities;// 设备支持的操作
+        u32 reserved[4]; // 保留字段
+        };
+    */
 	memset(&(cap), 0, sizeof(cap));
 	if (-1 == ioctl(fd, VIDIOC_QUERYCAP, &cap)) 
 	{
@@ -122,9 +226,79 @@ int V4l2Device::checkCapabilities(int fd, unsigned int mandatoryCapabilities)
 		return -1;
 	}
 	LOG(NOTICE) << "driver:" << cap.driver << " capabilities:" << std::hex << cap.capabilities <<  " mandatory:" << mandatoryCapabilities << std::dec;
-		
+    LOG(NOTICE) << "card:" << cap.card <<	" Bus info: " << cap.bus_info;
+    memcpy(bus_info, cap.bus_info, sizeof(cap.bus_info));
+    /// 检查设备的能力
 	if ((cap.capabilities & V4L2_CAP_VIDEO_OUTPUT))  LOG(NOTICE) << m_params.m_devName << " support output";
-	if ((cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) LOG(NOTICE) << m_params.m_devName << " support capture";
+    if ((cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
+        LOG(NOTICE) << m_params.m_devName << " support capture";
+        /***
+         *
+         * 查询该设备所有支持的功能
+         ***/
+        /*
+            struct v4l2_fmtdesc
+
+            {
+            u32 index;// 要查询的格式序号，应用程序设置
+            enum v4l2_buf_type type; // 帧类型，应用程序设置
+            u32 flags;// 是否为压缩格式
+            u8 description[32]; // 格式名称
+            u32 pixelformat;// 格式
+            u32 reserved[4]; // 保留
+            };
+    */
+        struct v4l2_fmtdesc fmtdesc;
+        fmtdesc.index=0;
+        fmtdesc.type=V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        LOG(NOTICE) <<"capture Support format:";
+//        while(ioctl(m_fd, VIDIOC_ENUM_FMT, &fmtdesc) != -1)
+//        {
+////          printf("\t%d.%s\n",fmtdesc.index+1,fmtdesc.description);
+//          LOG(NOTICE) <<(fmtdesc.index+1) <<"."<<fmtdesc.description<<",pixelformat:"<< fourcc(fmtdesc.pixelformat) ;
+
+//          fmtdesc.index++;
+//        }
+        {//获取摄像头所支持的格式和分辨率
+
+            enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            struct v4l2_fmtdesc fmtdesc;
+            struct v4l2_frmsizeenum frmsize;
+            struct v4l2_frmivalenum frmival;
+
+            fmtdesc.index = 0;
+            fmtdesc.type = type;
+            while (ioctl(fd, VIDIOC_ENUM_FMT, &fmtdesc) >= 0) {
+              LOG(NOTICE) <<(fmtdesc.index+1) <<"."<<fmtdesc.description<<",supoort resolution:";
+              frmsize.pixel_format = fmtdesc.pixelformat;
+              frmsize.index = 0;
+              while (ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frmsize) >= 0){
+
+                if(frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE){
+                    LOG(NOTICE) << "width:"<<frmsize.discrete.width << ",height:"<< frmsize.discrete.height;
+                    frmival.index = 0;
+                    frmival.pixel_format = fmtdesc.pixelformat;
+                    frmival.width = frmsize.discrete.width;
+                    frmival.height = frmsize.discrete.height;
+                    while (ioctl(fd, VIDIOC_ENUM_FRAMEINTERVALS, &frmival) >= 0) {
+                        print_frmival(frmival);
+                        frmival.index++;
+                    }
+                }else if(frmsize.type == V4L2_FRMSIZE_TYPE_STEPWISE){
+                    LOG(NOTICE) << "width:"<<frmsize.discrete.width << ",height:"<< frmsize.discrete.height;
+                }
+
+                frmsize.index++;
+                      }
+
+              fmtdesc.index++;
+            }
+
+          }
+
+
+
+    }
 
 	if ((cap.capabilities & V4L2_CAP_READWRITE))     LOG(NOTICE) << m_params.m_devName << " support read/write";
 	if ((cap.capabilities & V4L2_CAP_STREAMING))     LOG(NOTICE) << m_params.m_devName << " support streaming";
@@ -203,7 +377,7 @@ int V4l2Device::configureFormat(int fd, unsigned int format, unsigned int width,
 	m_height     = fmt.fmt.pix.height;		
 	m_bufferSize = fmt.fmt.pix.sizeimage;
 	
-	LOG(NOTICE) << m_params.m_devName << ":" << fourcc(m_format) << " size:" << m_width << "x" << m_height << " bufferSize:" << m_bufferSize;
+    LOG(NOTICE) <<"Setting "<< m_params.m_devName << ":" << fourcc(m_format) << " size:" << m_width << "x" << m_height << " bufferSize:" << m_bufferSize;
 	
 	return 0;
 }
@@ -224,8 +398,8 @@ int V4l2Device::configureParam(int fd)
 			LOG(WARN) << "Cannot set param for device:" << m_params.m_devName << " " << strerror(errno);
 		}
 	
-		LOG(NOTICE) << "fps:" << param.parm.capture.timeperframe.numerator << "/" << param.parm.capture.timeperframe.denominator;
-		LOG(NOTICE) << "nbBuffer:" << param.parm.capture.readbuffers;
+        LOG(NOTICE) <<"Setting "<< "fps:" << param.parm.capture.timeperframe.numerator << "/" << param.parm.capture.timeperframe.denominator;
+        LOG(NOTICE) <<"Setting "<< "nbBuffer:" << param.parm.capture.readbuffers;
 	}
 	
 	return 0;
